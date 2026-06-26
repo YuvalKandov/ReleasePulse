@@ -28,6 +28,11 @@ class SsrfValidationError(ValueError):
     """Raised when a URL is rejected as unsafe to register or fetch."""
 
 
+class SsrfResolutionError(SsrfValidationError):
+    """A URL's host could not be resolved (DNS failure), as opposed to a
+    routable-policy rejection. Lets callers distinguish dns_error from a block."""
+
+
 def is_globally_routable(ip: IpAddress) -> bool:
     """True only if `ip` is a public, globally-routable address.
 
@@ -53,7 +58,7 @@ def resolve_host(host: str, port: int | None) -> list[IpAddress]:
     try:
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
-        raise SsrfValidationError(f"could not resolve host '{host}'") from exc
+        raise SsrfResolutionError(f"could not resolve host '{host}'") from exc
     return [ipaddress.ip_address(info[4][0]) for info in infos]
 
 
@@ -113,7 +118,7 @@ def validate_url(
 
     addresses = resolver(host, port)
     if not addresses:
-        raise SsrfValidationError(f"could not resolve host '{host}'")
+        raise SsrfResolutionError(f"could not resolve host '{host}'")
 
     for ip in addresses:
         if is_globally_routable(ip):
