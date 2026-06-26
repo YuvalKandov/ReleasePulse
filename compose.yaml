@@ -1,0 +1,90 @@
+# Local stack for ReleasePulse: api, worker, postgres, grafana, plus a one-shot
+# migration step. `docker compose up` works out of the box with dev defaults;
+# override any value via a real .env or the shell.
+
+x-app: &app
+  build: .
+  image: releasepulse:local
+  environment: &app-env
+    DATABASE_URL: postgresql+psycopg://postgres:dev@postgres:5432/releasepulse
+    ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
+    WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-webhook-secret}
+    APP_ENV: ${APP_ENV:-dev}
+    SSRF_ALLOWLIST: ${SSRF_ALLOWLIST:-}
+    TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+    TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: releasepulse
+    # Host port 5433 to avoid colliding with the existing releasepulse-pg dev
+    # container on 5432. Inside the network everything still talks to 5432.
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d releasepulse"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "releasepulse.worker.runner"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # No healthcheck yet: the worker's internal /healthz /readyz server is Phase 1
+    # (spec 12). Add a check here mirroring the api once that server exists.
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  grafana-data:
