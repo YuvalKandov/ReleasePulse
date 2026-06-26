@@ -6,10 +6,23 @@ import asyncio
 import ipaddress
 
 import httpx
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
 
 from releasepulse.models import Check, Endpoint, Service
-from releasepulse.worker.runner import check_and_record
+from releasepulse.worker.runner import (
+    ALERT_JOB_ID,
+    EVALUATE_JOB_ID,
+    RECONCILE_JOB_ID,
+    check_and_record,
+    reconcile,
+)
+
+
+def _noop() -> None:
+    pass
 
 
 def _public_resolver(host, port):
@@ -67,3 +80,22 @@ def test_records_failed_check(db) -> None:
     assert row.success is False
     assert row.status_code == 503
     assert row.error_type == "unexpected_status"
+
+
+def test_reconcile_preserves_periodic_jobs(db, engine) -> None:
+    """reconcile manages only endpoint jobs; it must never sweep up the periodic
+    jobs (evaluate_due, dispatch_alerts) that share the scheduler."""
+    scheduler = AsyncIOScheduler()
+    for job_id in (RECONCILE_JOB_ID, EVALUATE_JOB_ID, ALERT_JOB_ID):
+        scheduler.add_job(_noop, IntervalTrigger(seconds=30), id=job_id)
+    # A stray job standing in for a since-removed endpoint - this one should go.
+    scheduler.add_job(_noop, IntervalTrigger(seconds=30), id="stale-endpoint")
+
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    reconcile(scheduler, factory, None, "production", "")  # no endpoints in the DB
+
+    ids = {j.id for j in scheduler.get_jobs()}
+    assert EVALUATE_JOB_ID in ids
+    assert ALERT_JOB_ID in ids
+    assert RECONCILE_JOB_ID in ids
+    assert "stale-endpoint" not in ids

@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
 
+    # Detector window sizes the worker's auto-evaluation uses. Defaults are the
+    # frozen spec values; the local Compose stack shortens them so the loop can be
+    # watched in minutes instead of the full ~13. Production keeps the defaults.
+    detector_baseline_sec: int = 600
+    detector_warmup_sec: int = 180
+    detector_observation_sec: int = 600
+    detector_min_samples: int = 15
+    detector_min_successful_baseline: int = 10
+
 
 @lru_cache
 def get_settings() -> Settings:

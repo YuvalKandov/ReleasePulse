@@ -10,9 +10,18 @@ x-app: &app
     ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
     WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-webhook-secret}
     APP_ENV: ${APP_ENV:-dev}
-    SSRF_ALLOWLIST: ${SSRF_ALLOWLIST:-}
+    # In dev, the worker may check the demo target by hostname; the allowlist is
+    # what makes that private-style host pass SSRF validation.
+    SSRF_ALLOWLIST: ${SSRF_ALLOWLIST:-demo}
     TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
     TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    # Shortened detector windows so the loop is watchable locally in ~2 min
+    # instead of the full ~13. Code defaults (production) keep the spec values.
+    DETECTOR_BASELINE_SEC: ${DETECTOR_BASELINE_SEC:-60}
+    DETECTOR_WARMUP_SEC: ${DETECTOR_WARMUP_SEC:-0}
+    DETECTOR_OBSERVATION_SEC: ${DETECTOR_OBSERVATION_SEC:-60}
+    DETECTOR_MIN_SAMPLES: ${DETECTOR_MIN_SAMPLES:-5}
+    DETECTOR_MIN_SUCCESSFUL_BASELINE: ${DETECTOR_MIN_SUCCESSFUL_BASELINE:-3}
 
 services:
   postgres:
@@ -72,6 +81,14 @@ services:
         condition: service_completed_successfully
     # No healthcheck yet: the worker's internal /healthz /readyz server is Phase 1
     # (spec 12). Add a check here mirroring the api once that server exists.
+    restart: unless-stopped
+
+  demo:
+    build: .
+    image: releasepulse:local
+    command: ["uvicorn", "releasepulse.demo.service:app", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "8080:8080"
     restart: unless-stopped
 
   grafana:

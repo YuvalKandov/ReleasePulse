@@ -12,8 +12,11 @@ from datetime import timedelta
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from releasepulse.config import Settings
+from releasepulse.detector.core import DEFAULT_THRESHOLDS
 from releasepulse.detector.service import evaluate_due_deployments
 from releasepulse.models import Deployment
+from releasepulse.worker.runner import thresholds_from_settings
 from tests.test_detector_service import (
     BASELINE_START,
     OBS_START,
@@ -114,3 +117,35 @@ def test_multiple_due_deployments_all_evaluated(db, engine) -> None:
     evaluated = evaluate_due_deployments(_factory(engine), now=NOW_DUE)
 
     assert set(evaluated) == ids
+
+
+# --- settings -> thresholds ----------------------------------------------
+
+def _settings(**overrides) -> Settings:
+    return Settings(admin_token="a", webhook_secret="w", **overrides)
+
+
+def test_thresholds_default_to_spec_values() -> None:
+    t = thresholds_from_settings(_settings())
+    assert t.baseline_window == DEFAULT_THRESHOLDS.baseline_window
+    assert t.warmup == DEFAULT_THRESHOLDS.warmup
+    assert t.observation_window == DEFAULT_THRESHOLDS.observation_window
+    assert t.min_samples == DEFAULT_THRESHOLDS.min_samples
+    assert t.min_successful_baseline == DEFAULT_THRESHOLDS.min_successful_baseline
+
+
+def test_thresholds_reflect_overrides() -> None:
+    t = thresholds_from_settings(
+        _settings(
+            detector_baseline_sec=60,
+            detector_warmup_sec=0,
+            detector_observation_sec=45,
+            detector_min_samples=5,
+            detector_min_successful_baseline=3,
+        )
+    )
+    assert t.baseline_window == timedelta(seconds=60)
+    assert t.warmup == timedelta(seconds=0)
+    assert t.observation_window == timedelta(seconds=45)
+    assert t.min_samples == 5
+    assert t.min_successful_baseline == 3

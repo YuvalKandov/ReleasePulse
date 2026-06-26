@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import httpx
@@ -20,8 +20,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from releasepulse.alerting.dispatch import dispatch_pending_alerts
 from releasepulse.alerting.sender import AlertSender, TelegramAlertSender
-from releasepulse.config import get_settings
+from releasepulse.config import Settings, get_settings
 from releasepulse.db import get_sessionmaker
+from releasepulse.detector.core import Thresholds
 from releasepulse.detector.service import evaluate_due_deployments
 from releasepulse.models import Check, Endpoint
 from releasepulse.security.ssrf import Resolver, resolve_host
@@ -105,7 +106,9 @@ def reconcile(
         ).all()
         wanted = {str(e.id): (e.id, e.check_interval_sec) for e in endpoints}
 
-    existing = {j.id for j in scheduler.get_jobs() if j.id != RECONCILE_JOB_ID}
+    # Only endpoint jobs are reconciled; the periodic jobs (evaluate_due,
+    # dispatch_alerts) are not endpoints and must never be swept up here.
+    existing = {j.id for j in scheduler.get_jobs() if j.id not in PERIODIC_JOB_IDS}
 
     for job_id, (endpoint_id, interval) in wanted.items():
         if job_id not in existing:
@@ -125,9 +128,22 @@ def reconcile(
         logger.info("unscheduled endpoint %s", job_id)
 
 
-def evaluate_due(session_factory: sessionmaker[Session]) -> None:
+def thresholds_from_settings(settings: Settings) -> Thresholds:
+    """Build detector windows from config. Only the window/sample knobs are
+    configurable; the comparison thresholds keep their per-endpoint-overridable
+    defaults (Thresholds())."""
+    return Thresholds(
+        baseline_window=timedelta(seconds=settings.detector_baseline_sec),
+        warmup=timedelta(seconds=settings.detector_warmup_sec),
+        observation_window=timedelta(seconds=settings.detector_observation_sec),
+        min_samples=settings.detector_min_samples,
+        min_successful_baseline=settings.detector_min_successful_baseline,
+    )
+
+
+def evaluate_due(session_factory: sessionmaker[Session], thresholds: Thresholds) -> None:
     """Scheduler job: evaluate every deployment whose window has closed."""
-    evaluated = evaluate_due_deployments(session_factory)
+    evaluated = evaluate_due_deployments(session_factory, defaults=thresholds)
     if evaluated:
         logger.info("auto-evaluated %d due deployment(s)", len(evaluated))
 
@@ -158,7 +174,7 @@ async def main() -> None:
         scheduler.add_job(
             evaluate_due,
             IntervalTrigger(seconds=EVALUATE_INTERVAL_SEC),
-            args=[session_factory],
+            args=[session_factory, thresholds_from_settings(settings)],
             id=EVALUATE_JOB_ID,
             max_instances=1,
             coalesce=True,
