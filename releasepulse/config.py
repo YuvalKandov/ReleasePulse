@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # Comma-separated hostnames or CIDRs permitted only when app_env == 'dev'.
     ssrf_allowlist: str = ""
 
+    # Telegram alert channel. Both must be set for the worker to dispatch alerts;
+    # if either is missing, alerting is disabled and the worker logs it once. Kept
+    # optional so the app runs locally and tests can inject a fake sender instead.
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
