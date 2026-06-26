@@ -1,0 +1,17 @@
+[project]
+name = "releasepulse"
+version = "0.1.0"
+description = "Release-health platform: links deployments to production behavior and flags post-deploy regressions."
+requires-python = ">=3.12"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg[binary]>=3.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["releasepulse"]

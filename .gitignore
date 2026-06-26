@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtualenv (uv-managed)
+.venv/
+
+# Local config / secrets
+.env
+
+# macOS
+.DS_Store
