@@ -12,10 +12,11 @@ excluded from the baseline.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from releasepulse.detector.core import (
@@ -56,6 +57,20 @@ def evaluate_deployment(
     obs_start = t0 + defaults.warmup
     obs_end = obs_start + defaults.observation_window
 
+    # Overlapping deploys: if a newer deploy for the same (service, environment)
+    # lands before this observation window ends, truncate the window at it -
+    # checks after that point reflect the newer release, not this one.
+    next_t = db.scalar(
+        select(func.min(Deployment.effective_deployed_at)).where(
+            Deployment.service_id == deployment.service_id,
+            Deployment.environment == deployment.environment,
+            Deployment.effective_deployed_at > t0,
+        )
+    )
+    truncated = next_t is not None and next_t < obs_end
+    if truncated:
+        obs_end = next_t
+
     endpoints = db.scalars(
         select(Endpoint).where(
             Endpoint.service_id == deployment.service_id,
@@ -77,6 +92,9 @@ def evaluate_deployment(
         baseline = _window_samples(db, endpoint.id, baseline_start, baseline_end)
         observation = _window_samples(db, endpoint.id, obs_start, obs_end)
         result = evaluate_endpoint(baseline, observation, thresholds)
+        # A shortfall caused by truncation is a supersession, not plain insufficiency.
+        if truncated and result.outcome == Outcome.INSUFFICIENT_OBSERVATION:
+            result = replace(result, outcome=Outcome.SUPERSEDED)
         results.append(result)
         db.add(_evaluation_row(deployment.id, endpoint.id, result))
         if result.outcome in REGRESSION_OUTCOMES:
@@ -104,6 +122,9 @@ def evaluate_deployment(
     elif any(r.outcome == Outcome.NO_REGRESSION for r in results):
         deployment.evaluation_status = "evaluated_no_regression"
         deployment.evaluation_reason = None
+    elif any(r.outcome == Outcome.SUPERSEDED for r in results):
+        deployment.evaluation_status = "superseded"
+        deployment.evaluation_reason = "superseded_by_newer_deployment"
     else:
         deployment.evaluation_status = "insufficient_baseline"
         deployment.evaluation_reason = _all_blocked_reason(results)

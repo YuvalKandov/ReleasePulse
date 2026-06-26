@@ -51,14 +51,15 @@ def _endpoint(db, service_id, url="https://svc/api", environment="production",
     return e
 
 
-def _deployment(db, service_id, environment="production", external_id="e:1") -> Deployment:
+def _deployment(db, service_id, environment="production", external_id="e:1",
+                effective_at=T) -> Deployment:
     d = Deployment(
         service_id=service_id,
         environment=environment,
         source="manual",
         external_id=external_id,
-        received_at=T,
-        effective_deployed_at=T,
+        received_at=effective_at,
+        effective_deployed_at=effective_at,
         evaluation_status="pending",
     )
     db.add(d)
@@ -224,3 +225,72 @@ def test_disabled_endpoint_is_ignored(db) -> None:
     assert result.evaluation_status == "insufficient_baseline"
     assert result.evaluation_reason == "no_enabled_endpoints"
     assert _evals(db, dep.id) == []
+
+
+# --- superseded / overlapping deploys -------------------------------------
+
+def test_superseded_when_newer_deploy_truncates_below_min_samples(db) -> None:
+    svc = _service(db)
+    ep = _endpoint(db, svc.id)
+    old = _deployment(db, svc.id, external_id="e:1")  # at T
+    _deployment(db, svc.id, external_id="e:2", effective_at=T + timedelta(minutes=5))
+    _seed_window(db, ep.id, BASELINE_START, n_success=20, latency=100, n_fail=0)
+    # 30 observation checks (>= 15 untruncated); truncating at T+5min leaves ~12.
+    _seed_window(db, ep.id, OBS_START, n_success=30, latency=100, n_fail=0)
+    db.commit()
+
+    result = evaluate_deployment(db, old.id)
+
+    assert result.evaluation_status == "superseded"
+    assert result.evaluation_reason == "superseded_by_newer_deployment"
+    assert _evals(db, old.id)[0].outcome == "superseded"
+    assert _incident_count(db) == 0
+
+
+def test_truncation_with_enough_samples_evaluates_normally(db) -> None:
+    svc = _service(db)
+    ep = _endpoint(db, svc.id)
+    old = _deployment(db, svc.id, external_id="e:1")  # at T
+    _deployment(db, svc.id, external_id="e:2", effective_at=T + timedelta(minutes=12))
+    _seed_window(db, ep.id, BASELINE_START, n_success=20, latency=100, n_fail=0)
+    # 40 checks packed early; truncating at T+12min still leaves all of them.
+    _seed_window(db, ep.id, OBS_START, n_success=40, latency=100, n_fail=0)
+    db.commit()
+
+    result = evaluate_deployment(db, old.id)
+
+    assert result.evaluation_status == "evaluated_no_regression"
+    assert _evals(db, old.id)[0].outcome == "no_regression"
+
+
+def test_newer_deploy_after_window_does_not_truncate(db) -> None:
+    svc = _service(db)
+    ep = _endpoint(db, svc.id)
+    old = _deployment(db, svc.id, external_id="e:1")  # at T
+    # Newer deploy lands after the observation window ends -> no truncation.
+    _deployment(db, svc.id, external_id="e:2", effective_at=T + timedelta(minutes=20))
+    _seed_window(db, ep.id, BASELINE_START, n_success=20, latency=100, n_fail=0)
+    _seed_window(db, ep.id, OBS_START, n_success=20, latency=200, n_fail=0)
+    db.commit()
+
+    result = evaluate_deployment(db, old.id)
+
+    assert result.evaluation_status == "evaluated_regression"
+    assert _evals(db, old.id)[0].outcome == "regressed_latency"
+    assert _incident_count(db) == 1
+
+
+def test_newer_deploy_during_warmup_supersedes(db) -> None:
+    svc = _service(db)
+    ep = _endpoint(db, svc.id)
+    old = _deployment(db, svc.id, external_id="e:1")  # at T
+    # Newer deploy lands inside the warmup gap, before observation even starts.
+    _deployment(db, svc.id, external_id="e:2", effective_at=T + timedelta(minutes=1))
+    _seed_window(db, ep.id, BASELINE_START, n_success=20, latency=100, n_fail=0)
+    _seed_window(db, ep.id, OBS_START, n_success=30, latency=100, n_fail=0)
+    db.commit()
+
+    result = evaluate_deployment(db, old.id)
+
+    assert result.evaluation_status == "superseded"
+    assert _evals(db, old.id)[0].outcome == "superseded"
