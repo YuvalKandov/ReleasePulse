@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from releasepulse.config import get_settings
 from releasepulse.db import get_sessionmaker
+from releasepulse.detector.service import evaluate_due_deployments
 from releasepulse.models import Check, Endpoint
 from releasepulse.security.ssrf import Resolver, resolve_host
 from releasepulse.worker.check import perform_check
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 RECONCILE_JOB_ID = "reconcile"
 RECONCILE_INTERVAL_SEC = 60
+EVALUATE_JOB_ID = "evaluate_due"
+EVALUATE_INTERVAL_SEC = 30
 
 
 async def check_and_record(
@@ -117,6 +120,13 @@ def reconcile(
         logger.info("unscheduled endpoint %s", job_id)
 
 
+def evaluate_due(session_factory: sessionmaker[Session]) -> None:
+    """Scheduler job: evaluate every deployment whose window has closed."""
+    evaluated = evaluate_due_deployments(session_factory)
+    if evaluated:
+        logger.info("auto-evaluated %d due deployment(s)", len(evaluated))
+
+
 async def main() -> None:
     settings = get_settings()
     session_factory = get_sessionmaker()
@@ -130,8 +140,17 @@ async def main() -> None:
             id=RECONCILE_JOB_ID,
         )
         reconcile(scheduler, session_factory, client, settings.app_env, settings.ssrf_allowlist)
+        scheduler.add_job(
+            evaluate_due,
+            IntervalTrigger(seconds=EVALUATE_INTERVAL_SEC),
+            args=[session_factory],
+            id=EVALUATE_JOB_ID,
+            max_instances=1,
+            coalesce=True,
+        )
         scheduler.start()
-        logger.info("worker started with %d endpoint job(s)", len(scheduler.get_jobs()) - 1)
+        # Exclude the two periodic jobs (reconcile + evaluate_due) from the count.
+        logger.info("worker started with %d endpoint job(s)", len(scheduler.get_jobs()) - 2)
         try:
             await asyncio.Event().wait()  # run until interrupted
         finally:

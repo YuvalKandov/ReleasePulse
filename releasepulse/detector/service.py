@@ -12,12 +12,13 @@ excluded from the baseline.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from releasepulse.detector.core import (
     DEFAULT_THRESHOLDS,
@@ -36,6 +37,47 @@ from releasepulse.models import (
     Endpoint,
     Incident,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def evaluate_due_deployments(
+    session_factory: sessionmaker[Session],
+    *,
+    defaults: Thresholds = DEFAULT_THRESHOLDS,
+    now: datetime | None = None,
+) -> list[UUID]:
+    """Evaluate every pending deployment whose observation window has fully elapsed.
+
+    A deployment is due once ``now >= effective_deployed_at + warmup +
+    observation_window``. We read the due ids in one short session, then evaluate
+    each in its own session so a single failure can't sink the batch. Relies on the
+    idempotency of evaluate_deployment (only ``pending`` rows are touched), so a
+    re-run picks up nothing it already handled. Returns the ids evaluated.
+    """
+    now = now or datetime.now(timezone.utc)
+    due_before = now - (defaults.warmup + defaults.observation_window)
+
+    with session_factory() as session:
+        due_ids = list(
+            session.scalars(
+                select(Deployment.id).where(
+                    Deployment.evaluation_status == "pending",
+                    Deployment.effective_deployed_at <= due_before,
+                )
+            )
+        )
+
+    evaluated: list[UUID] = []
+    for deployment_id in due_ids:
+        with session_factory() as session:
+            try:
+                evaluate_deployment(session, deployment_id, defaults=defaults)
+                evaluated.append(deployment_id)
+            except Exception:
+                logger.exception("auto-evaluation failed for deployment %s", deployment_id)
+                session.rollback()
+    return evaluated
 
 
 def evaluate_deployment(
