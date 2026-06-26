@@ -8,6 +8,7 @@ can serialize directly from a model instance.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -77,3 +78,39 @@ class EndpointUpdate(BaseModel):
     latency_pct: float | None = Field(default=None, gt=0)
     latency_floor_ms: int | None = Field(default=None, ge=0)
     error_delta: float | None = Field(default=None, ge=0, le=1)
+
+
+# --- deployments ----------------------------------------------------------
+
+class DeploymentCreate(BaseModel):
+    """Webhook body. The caller namespaces external_id (e.g. repo:run_id:attempt)."""
+
+    service: str = Field(min_length=1)
+    environment: str = "production"
+    version: str | None = None
+    commit_sha: str | None = None
+    source: Literal["github-actions", "argocd", "manual"]
+    external_id: str = Field(min_length=1)
+    reported_deployed_at: datetime | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class DeploymentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UUID
+    service_id: UUID
+    environment: str
+    version: str | None
+    commit_sha: str | None
+    source: str
+    external_id: str
+    reported_deployed_at: datetime | None
+    received_at: datetime
+    effective_deployed_at: datetime
+    # Model attribute is `meta`; serialize it under the spec's JSON name.
+    meta: dict[str, Any] | None = Field(default=None, serialization_alias="metadata")
+    evaluation_status: str
+    evaluation_reason: str | None
+    evaluated_at: datetime | None
+    created_at: datetime

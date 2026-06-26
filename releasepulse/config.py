@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # must be told its admin token explicitly.
     admin_token: str
 
+    # Separate bearer secret guarding the deployment webhook (distinct from the
+    # admin token: CI/CD holds this, not admin credentials).
+    webhook_secret: str
+
     # 'production' rejects every non-globally-routable destination.
     # 'dev' additionally permits the hosts/CIDRs listed in ssrf_allowlist,
     # so the future Docker Compose demo (e.g. http://demo-service:8080) works

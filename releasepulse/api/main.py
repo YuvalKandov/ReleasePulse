@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from releasepulse.api.routers import endpoints, services
+from releasepulse.api.routers import deployments, endpoints, services
 
 app = FastAPI(title="ReleasePulse", version="0.1.0")
 
 app.include_router(services.router)
 app.include_router(endpoints.router)
+app.include_router(deployments.router)
 
 
 @app.get("/healthz", tags=["ops"])
