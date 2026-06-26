@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import os
 
-from sqlalchemy import MetaData
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import MetaData, create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 # Deterministic names for every constraint and index. Without this, SQLAlchemy
 # lets Postgres auto-name things (e.g. unnamed CHECK/UNIQUE), which makes Alembic
@@ -41,3 +42,27 @@ def get_database_url() -> str:
             "postgresql+psycopg://postgres:dev@localhost:5432/releasepulse"
         )
     return url
+
+
+# The engine (connection pool) and session factory are built lazily on first
+# use, so importing this module never requires DATABASE_URL to be set - which
+# keeps unit tests that don't touch the database cheap to import.
+_engine: Engine | None = None
+_session_factory: sessionmaker[Session] | None = None
+
+
+def get_engine() -> Engine:
+    global _engine
+    if _engine is None:
+        # pool_pre_ping guards against stale connections (e.g. Postgres restarted).
+        _engine = create_engine(get_database_url(), pool_pre_ping=True, future=True)
+    return _engine
+
+
+def get_sessionmaker() -> sessionmaker[Session]:
+    global _session_factory
+    if _session_factory is None:
+        _session_factory = sessionmaker(
+            bind=get_engine(), expire_on_commit=False, class_=Session
+        )
+    return _session_factory
