@@ -1,0 +1,27 @@
+name: notify-releasepulse
+
+# Fires when a release is published (a real "this shipped" signal) or on manual
+# dispatch. In an app repo you would instead make this the final step of your
+# deploy job: `needs: [deploy]` + `if: success()`, so it only runs once the deploy
+# actually succeeded. See deploy/github-actions/README.md.
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - uses: actions/checkout@v4
+      - name: Notify ReleasePulse of the deploy
+        env:
+          # GitHub sets GITHUB_REPOSITORY / GITHUB_RUN_ID / GITHUB_RUN_ATTEMPT /
+          # GITHUB_SHA / GITHUB_REF_NAME automatically; the script reads them.
+          RELEASEPULSE_URL: ${{ secrets.RELEASEPULSE_URL }}
+          RELEASEPULSE_WEBHOOK_SECRET: ${{ secrets.RELEASEPULSE_WEBHOOK_SECRET }}
+          RELEASEPULSE_SERVICE: ${{ vars.RELEASEPULSE_SERVICE || github.event.repository.name }}
+          RELEASEPULSE_VERSION: ${{ github.event.release.tag_name }}
+        run: bash scripts/notify_releasepulse.sh
