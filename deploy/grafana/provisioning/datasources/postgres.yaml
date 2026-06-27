@@ -1,0 +1,17 @@
+apiVersion: 1
+
+datasources:
+  - name: ReleasePulse
+    uid: releasepulse
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    user: sentinel_grafana_ro
+    isDefault: true
+    editable: false
+    jsonData:
+      database: releasepulse
+      sslmode: disable
+      postgresVersion: 1700
+    secureJsonData:
+      password: grafana-ro

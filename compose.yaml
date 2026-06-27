@@ -91,15 +91,49 @@ services:
       - "8080:8080"
     restart: unless-stopped
 
+  # One-shot: create the Grafana read-only role and the dashboard views after the
+  # schema exists. Uses the postgres image (it has psql; the app image does not).
+  db-provision:
+    image: postgres:17
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./deploy/grafana/views.sql:/sql/views.sql:ro
+      - ./deploy/grafana/grants.sql:/sql/grants.sql:ro
+    command:
+      - psql
+      - -h
+      - postgres
+      - -U
+      - postgres
+      - -d
+      - releasepulse
+      - -v
+      - ON_ERROR_STOP=1
+      - -f
+      - /sql/views.sql
+      - -f
+      - /sql/grants.sql
+    restart: "no"
+
   grafana:
     image: grafana/grafana:11.4.0
     ports:
       - "3000:3000"
+    environment:
+      # Open viewing for the local demo - no login needed to see the dashboard.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-provision:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
