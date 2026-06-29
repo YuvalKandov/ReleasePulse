@@ -86,10 +86,10 @@ demo:
   service:
     port: 8080
 
-# Off by default; we reach the api/grafana via kubectl port-forward first. Flip on
-# to expose them through an ingress-nginx controller at the hosts below.
+# Exposes api + grafana through an ingress-nginx controller at the hosts below,
+# reachable at http://<host> with no port-forward (kind maps node 80 -> laptop 80).
 ingress:
-  enabled: false
+  enabled: true
   className: nginx
   apiHost: releasepulse.localhost
   grafanaHost: grafana.localhost

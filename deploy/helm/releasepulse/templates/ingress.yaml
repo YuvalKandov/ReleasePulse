@@ -1,0 +1,37 @@
+{{- if .Values.ingress.enabled }}
+# One entry point, routed by Host header: releasepulse.localhost -> api,
+# grafana.localhost -> grafana. The ingress controller listens on the node's
+# ports 80/443, which kind maps to your laptop's 80/443 (see kind-config.yaml),
+# so these are reachable at http://<host> with no port-forward.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "releasepulse.fullname" . }}
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.apiHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "releasepulse.fullname" . }}-api
+                port:
+                  number: {{ .Values.api.service.port }}
+    {{- if .Values.grafana.enabled }}
+    - host: {{ .Values.ingress.grafanaHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "releasepulse.fullname" . }}-grafana
+                port:
+                  number: {{ .Values.grafana.service.port }}
+    {{- end }}
+{{- end }}
