@@ -30,6 +30,7 @@ _ALL_TABLES = (
     "incidents",
     "deployment_endpoint_evaluations",
     "checks",
+    "webhook_deliveries",
     "deployments",
     "endpoints",
     "services",

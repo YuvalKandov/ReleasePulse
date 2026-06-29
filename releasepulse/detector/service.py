@@ -30,6 +30,7 @@ from releasepulse.detector.core import (
     evaluate_endpoint,
     merge_thresholds,
 )
+from releasepulse.metrics import detector_evaluations_total
 from releasepulse.models import (
     Check,
     Deployment,
@@ -173,6 +174,9 @@ def evaluate_deployment(
 
     db.commit()
     db.refresh(deployment)
+    # Count one evaluation, labelled by the status we just persisted. The early
+    # return above for already-evaluated deployments means re-runs aren't counted.
+    detector_evaluations_total.labels(result=deployment.evaluation_status).inc()
     return deployment
 
 

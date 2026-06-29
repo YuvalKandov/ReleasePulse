@@ -24,9 +24,11 @@ from releasepulse.config import Settings, get_settings
 from releasepulse.db import get_sessionmaker
 from releasepulse.detector.core import Thresholds
 from releasepulse.detector.service import evaluate_due_deployments
+from releasepulse.metrics import check_duration_seconds, checks_total
 from releasepulse.models import Check, Endpoint
 from releasepulse.security.ssrf import Resolver, resolve_host
 from releasepulse.worker.check import perform_check
+from releasepulse.worker.http import WorkerState, build_server, create_app
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,11 @@ EVALUATE_INTERVAL_SEC = 30
 ALERT_JOB_ID = "dispatch_alerts"
 ALERT_INTERVAL_SEC = 30
 PERIODIC_JOB_IDS = frozenset({RECONCILE_JOB_ID, EVALUATE_JOB_ID, ALERT_JOB_ID})
+
+# Readiness goes stale if reconcile hasn't bumped the heartbeat in this long.
+# Three reconcile intervals tolerates one slow/missed run before flagging - tight
+# enough to catch a wedged loop, loose enough not to flap on a single hiccup.
+WORKER_HEARTBEAT_MAX_AGE_SEC = RECONCILE_INTERVAL_SEC * 3
 
 
 async def check_and_record(
@@ -52,6 +59,11 @@ async def check_and_record(
     result = await perform_check(
         endpoint, client, app_env=app_env, allowlist_raw=allowlist_raw, resolver=resolver
     )
+    checks_total.labels(result="success" if result.success else "failure").inc()
+    if result.latency_ms is not None:
+        # latency_ms is absent for failures with no response (e.g. timeout, DNS);
+        # only observe a real measurement. Histogram is in seconds, our metric is ms.
+        check_duration_seconds.observe(result.latency_ms / 1000)
     check = Check(
         endpoint_id=endpoint.id,
         checked_at=datetime.now(timezone.utc),
@@ -162,15 +174,25 @@ async def main() -> None:
     settings = get_settings()
     session_factory = get_sessionmaker()
     scheduler = AsyncIOScheduler()
+    state = WorkerState(scheduler=scheduler, session_factory=session_factory)
+    heartbeat_max_age = timedelta(seconds=WORKER_HEARTBEAT_MAX_AGE_SEC)
 
     async with httpx.AsyncClient(follow_redirects=False) as client:
+        def reconcile_and_beat() -> None:
+            # Wrap reconcile so a successful run also bumps the heartbeat that
+            # /readyz checks. reconcile itself stays pure (and unit-tested) - the
+            # heartbeat coupling lives only here, where the loop is wired up.
+            reconcile(
+                scheduler, session_factory, client, settings.app_env, settings.ssrf_allowlist
+            )
+            state.beat()
+
         scheduler.add_job(
-            reconcile,
+            reconcile_and_beat,
             IntervalTrigger(seconds=RECONCILE_INTERVAL_SEC),
-            args=[scheduler, session_factory, client, settings.app_env, settings.ssrf_allowlist],
             id=RECONCILE_JOB_ID,
         )
-        reconcile(scheduler, session_factory, client, settings.app_env, settings.ssrf_allowlist)
+        reconcile_and_beat()
         scheduler.add_job(
             evaluate_due,
             IntervalTrigger(seconds=EVALUATE_INTERVAL_SEC),
@@ -196,10 +218,23 @@ async def main() -> None:
         scheduler.start()
         n_endpoints = sum(1 for j in scheduler.get_jobs() if j.id not in PERIODIC_JOB_IDS)
         logger.info("worker started with %d endpoint job(s)", n_endpoints)
+
+        # Internal probe/metrics server, run as a task in this same loop so its
+        # /readyz observes the live scheduler and heartbeat.
+        server = build_server(
+            create_app(state, heartbeat_max_age=heartbeat_max_age),
+            host="0.0.0.0",
+            port=settings.worker_http_port,
+        )
+        server_task = asyncio.create_task(server.serve())
+        logger.info("worker health server listening on :%d", settings.worker_http_port)
+
         try:
             await asyncio.Event().wait()  # run until interrupted
         finally:
+            server.should_exit = True
             scheduler.shutdown(wait=False)
+            await asyncio.gather(server_task, return_exceptions=True)
 
 
 def run() -> None:

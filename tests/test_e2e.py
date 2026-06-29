@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
+import time
 from datetime import timedelta
 
 import httpx
@@ -24,6 +26,12 @@ from sqlalchemy.orm import sessionmaker
 from releasepulse.alerting.dispatch import dispatch_pending_alerts
 from releasepulse.api.deps import get_db
 from releasepulse.api.main import app as api_app
+from releasepulse.api.webhook_auth import (
+    EVENT_ID_HEADER,
+    SIGNATURE_HEADER,
+    TIMESTAMP_HEADER,
+    expected_signature,
+)
 from releasepulse.config import Settings, get_settings
 from releasepulse.demo.service import create_app as create_demo_app
 from releasepulse.detector.core import Thresholds
@@ -33,7 +41,17 @@ from releasepulse.worker.runner import check_and_record
 from tests.test_alerting import FakeAlertSender
 
 WEBHOOK_SECRET = "test-webhook-secret"
-AUTH = {"Authorization": f"Bearer {WEBHOOK_SECRET}"}
+
+
+def _signed_headers(body: bytes, *, event_id: str) -> dict[str, str]:
+    """Build valid HMAC headers for raw `body`, signed with a fresh timestamp."""
+    ts = str(int(time.time()))
+    return {
+        TIMESTAMP_HEADER: ts,
+        SIGNATURE_HEADER: expected_signature(WEBHOOK_SECRET, ts, body),
+        EVENT_ID_HEADER: event_id,
+        "Content-Type": "application/json",
+    }
 
 # Real spec maths, shrunk windows so checks made seconds apart land correctly.
 TEST_THRESHOLDS = Thresholds(
@@ -102,8 +120,13 @@ def test_e2e_deploy_regression_fires_one_alert_idempotently(db, engine) -> None:
             # Healthy baseline.
             await _set_mode(demo, latency_ms=5, error_rate=0.0)
             await _run_checks(demo, 12)
-            # The deploy event.
-            r = await api.post("/webhooks/deployments", json=payload, headers=AUTH)
+            # The deploy event, signed (HMAC) over the exact bytes we send.
+            body = json.dumps(payload).encode()
+            r = await api.post(
+                "/webhooks/deployments",
+                content=body,
+                headers=_signed_headers(body, event_id="evt-deploy-1"),
+            )
             assert r.status_code == 201, r.text
             # Degrade: much slower after the deploy.
             await _set_mode(demo, latency_ms=150, error_rate=0.0)
@@ -112,7 +135,14 @@ def test_e2e_deploy_regression_fires_one_alert_idempotently(db, engine) -> None:
     async def _resend_webhook() -> int:
         api = httpx.AsyncClient(transport=httpx.ASGITransport(app=api_app), base_url="http://api")
         async with api:
-            r = await api.post("/webhooks/deployments", json=payload, headers=AUTH)
+            # A CI rerun: a fresh signed delivery (new event id) for the same
+            # deployment. Dedups on (source, external_id) -> 200, no new row.
+            body = json.dumps(payload).encode()
+            r = await api.post(
+                "/webhooks/deployments",
+                content=body,
+                headers=_signed_headers(body, event_id="evt-deploy-2"),
+            )
             return r.status_code
 
     def _override_db():

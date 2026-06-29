@@ -46,23 +46,3 @@ def require_admin(
             detail="missing or invalid admin token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-
-def require_webhook_secret(
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
-    settings: Settings = Depends(get_settings),
-) -> None:
-    """Reject any webhook lacking a valid `Authorization: Bearer <WEBHOOK_SECRET>`.
-
-    Separate from require_admin: CI/CD holds the webhook secret, not the admin token.
-    """
-    if (
-        credentials is None
-        or credentials.scheme.lower() != "bearer"
-        or not secrets.compare_digest(credentials.credentials, settings.webhook_secret)
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="missing or invalid webhook secret",
-            headers={"WWW-Authenticate": "Bearer"},
-        )

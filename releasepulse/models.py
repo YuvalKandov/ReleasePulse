@@ -312,3 +312,33 @@ class Alert(Base):
             "status IN ('pending','sent','failed')", name="status_allowed"
         ),
     )
+
+
+class WebhookDelivery(Base):
+    """One row per accepted, HMAC-signed webhook delivery (Phase 1 replay guard).
+
+    event_id is the *delivery* identity (X-Sentinel-Event-Id), distinct from a
+    deployment's external_id. The UNIQUE constraint makes each signed delivery
+    single-use: a replay of the same signed request finds the row and is treated
+    as an idempotent no-op. deployment_id links the delivery to the deployment it
+    pertained to (newly created or an already-existing duplicate)."""
+
+    __tablename__ = "webhook_deliveries"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    event_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    deployment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("deployments.id"), nullable=False
+    )
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("event_id", name="uq_webhook_deliveries_event_id"),
+    )

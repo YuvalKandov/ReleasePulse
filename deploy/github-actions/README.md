@@ -15,7 +15,7 @@ the same webhook your deploy tooling already fires, driven from a real pipeline.
 | Kind | Name | Value |
 |------|------|-------|
 | Secret | `RELEASEPULSE_URL` | base URL of the ReleasePulse API (e.g. `https://releasepulse.example.com`) |
-| Secret | `RELEASEPULSE_WEBHOOK_SECRET` | the webhook bearer secret |
+| Secret | `RELEASEPULSE_WEBHOOK_SECRET` | the webhook HMAC signing secret |
 | Variable | `RELEASEPULSE_SERVICE` | registered service name (defaults to the repo name) |
 
 If the URL/secret are absent the script **skips quietly** (exit 0), so adding the

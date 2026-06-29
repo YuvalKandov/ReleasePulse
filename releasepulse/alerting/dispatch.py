@@ -16,6 +16,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from releasepulse.alerting.sender import AlertSender
+from releasepulse.metrics import alerts_total
 from releasepulse.models import Alert, Incident
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ async def dispatch_pending_alerts(
             alert.status = "failed"
             alert.last_error = str(exc)[:1000]
             session.commit()
+            alerts_total.labels(result="failed").inc()
             logger.warning("alert delivery failed for incident %s: %s", incident.id, exc)
             continue
 
@@ -73,6 +75,7 @@ async def dispatch_pending_alerts(
         alert.sent_at = datetime.now(timezone.utc)
         alert.last_error = None
         session.commit()
+        alerts_total.labels(result="sent").inc()
         sent += 1
 
     return sent

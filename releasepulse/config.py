@@ -21,9 +21,15 @@ class Settings(BaseSettings):
     # must be told its admin token explicitly.
     admin_token: str
 
-    # Separate bearer secret guarding the deployment webhook (distinct from the
-    # admin token: CI/CD holds this, not admin credentials).
+    # Shared secret for the deployment webhook (distinct from the admin token:
+    # CI/CD holds this, not admin credentials). From Phase 1 it is the HMAC key:
+    # the sender signs "<timestamp>.<raw_body>" with it, the receiver recomputes.
     webhook_secret: str
+
+    # How far a webhook's signed timestamp may drift from now (seconds) before we
+    # reject it as a possible replay. 300s tolerates clock skew + delivery latency
+    # while keeping the replay window short.
+    webhook_hmac_window_sec: int = 300
 
     # 'production' rejects every non-globally-routable destination.
     # 'dev' additionally permits the hosts/CIDRs listed in ssrf_allowlist,
@@ -48,6 +54,10 @@ class Settings(BaseSettings):
     detector_observation_sec: int = 600
     detector_min_samples: int = 15
     detector_min_successful_baseline: int = 10
+
+    # Port the worker's internal HTTP server binds for /healthz, /readyz, /metrics.
+    # Distinct from the API's 8000; Kubernetes probes and Prometheus scrape it.
+    worker_http_port: int = 8001
 
 
 @lru_cache

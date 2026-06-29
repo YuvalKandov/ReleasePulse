@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings>=2.14.2",
     "httpx>=0.28.1",
     "apscheduler>=3.11.2",
+    "prometheus-client>=0.21",
 ]
 
 [build-system]
@@ -28,3 +29,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    # Starlette's TestClient uses httpx internally and warns that a future
+    # version will switch to httpx2. It's a third-party deprecation we can't act
+    # on; scoped to this exact message so real warnings still surface.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
