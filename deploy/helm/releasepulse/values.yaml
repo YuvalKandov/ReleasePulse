@@ -47,7 +47,7 @@ postgres:
 externalDatabaseUrl: ""
 
 api:
-  replicas: 2
+  replicas: 1
   service:
     port: 8000
   resources:
