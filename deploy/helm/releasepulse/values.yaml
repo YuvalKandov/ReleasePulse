@@ -60,6 +60,16 @@ worker:
     requests: { cpu: 50m, memory: 128Mi }
     limits: { cpu: 500m, memory: 256Mi }
 
+prometheus:
+  enabled: true
+  image: prom/prometheus:v2.55.1
+  service:
+    port: 9090
+  retention: 6h               # local self-metrics; no need to keep long
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
 grafana:
   enabled: true
   image: grafana/grafana:11.4.0

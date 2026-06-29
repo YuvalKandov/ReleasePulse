@@ -14,6 +14,10 @@ spec:
       app.kubernetes.io/component: grafana
   template:
     metadata:
+      annotations:
+        # Roll Grafana when its provisioning/dashboards ConfigMap changes, so new
+        # datasources and dashboards are picked up on helm upgrade.
+        checksum/config: {{ include (print $.Template.BasePath "/grafana-configmap.yaml") . | sha256sum }}
       labels:
         {{- include "releasepulse.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: grafana
@@ -48,6 +52,11 @@ spec:
             - name: grafana-config
               mountPath: /var/lib/grafana/dashboards/service-health.json
               subPath: service-health.json
+            {{- if .Values.prometheus.enabled }}
+            - name: grafana-config
+              mountPath: /var/lib/grafana/dashboards/platform-health.json
+              subPath: platform-health.json
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /api/health

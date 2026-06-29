@@ -5,6 +5,9 @@ metadata:
   labels:
     {{- include "releasepulse.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
+  annotations:
+    # Prometheus discovers and scrapes the worker's /metrics on its internal port.
+    prometheus.io/scrape: "true"
 spec:
   # The worker has no public API; this Service exists so Prometheus can scrape its
   # /metrics (and /readyz is reachable in-cluster). Not for end-user traffic.

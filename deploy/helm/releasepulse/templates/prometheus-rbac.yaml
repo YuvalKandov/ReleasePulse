@@ -1,0 +1,40 @@
+{{- if .Values.prometheus.enabled }}
+# Prometheus needs to query the Kubernetes API to discover scrape targets. This
+# grants a dedicated ServiceAccount read-only access to the few resource kinds
+# service discovery looks at - nothing more (least privilege).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-prometheus
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-prometheus
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-prometheus
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "releasepulse.fullname" . }}-prometheus
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "releasepulse.fullname" . }}-prometheus
+    namespace: {{ .Release.Namespace }}
+{{- end }}

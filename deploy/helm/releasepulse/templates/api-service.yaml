@@ -5,6 +5,9 @@ metadata:
   labels:
     {{- include "releasepulse.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
+  annotations:
+    # Prometheus discovers and scrapes this Service's /metrics (see prometheus-configmap).
+    prometheus.io/scrape: "true"
 spec:
   type: ClusterIP
   selector:

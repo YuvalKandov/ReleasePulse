@@ -1,0 +1,36 @@
+{{- if .Values.prometheus.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-prometheus
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+      # Discover Service endpoints in this namespace and scrape only the ones
+      # annotated prometheus.io/scrape="true" (our api + worker). Each Service has
+      # a single port, which is also the port serving /metrics, so the discovered
+      # __address__ (podIP:port) is already correct - no port rewrite needed.
+      - job_name: releasepulse
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: [{{ .Release.Namespace | quote }}]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          # A readable component label (api/worker) from our standard pod label.
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            target_label: component
+{{- end }}

@@ -27,6 +27,15 @@ data:
           postgresVersion: 1700
         secureJsonData:
           password: $GRAFANA_DB_PASSWORD
+      {{- if .Values.prometheus.enabled }}
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://{{ include "releasepulse.fullname" . }}-prometheus:9090
+        isDefault: false
+        editable: false
+      {{- end }}
   # Dashboard provider: load any dashboard JSON found under this path on startup.
   dashboards.yaml: |
     apiVersion: 1
@@ -39,7 +48,12 @@ data:
         options:
           path: /var/lib/grafana/dashboards
           foldersFromFilesStructure: false
-  # The dashboard itself, pulled verbatim from the chart's copy.
+  # The dashboards, pulled verbatim from the chart's copies. service-health reads
+  # Postgres (the product); platform-health reads Prometheus (the watchdog itself).
   service-health.json: |
 {{ .Files.Get "dashboards/service-health.json" | indent 4 }}
+  {{- if .Values.prometheus.enabled }}
+  platform-health.json: |
+{{ .Files.Get "dashboards/platform-health.json" | indent 4 }}
+  {{- end }}
 {{- end }}
