@@ -1,0 +1,85 @@
+# ReleasePulse Helm values - the single control panel for the whole stack.
+# Every template reads from here; overriding a value (or passing -f myvalues.yaml)
+# is how you reshape the deployment without touching templates.
+
+image:
+  repository: releasepulse
+  tag: local
+  # IfNotPresent: use the image kind already has loaded; never reach for a registry
+  # (there is none locally). A real deployment would push to a registry and pull.
+  pullPolicy: IfNotPresent
+
+# Non-secret application config -> becomes a ConfigMap, loaded as env into api/worker.
+config:
+  appEnv: dev                 # 'production' rejects private hosts; 'dev' honours ssrfAllowlist
+  # Extra private hosts/CIDRs to allow in dev mode. The demo's own hostname is
+  # appended automatically (see configmap.yaml) when demo.enabled.
+  ssrfAllowlist: ""
+  workerHttpPort: 8001
+  detector:                   # shortened windows so the loop is watchable in ~2 min
+    baselineSec: 60
+    warmupSec: 0
+    observationSec: 60
+    minSamples: 5
+    minSuccessfulBaseline: 3
+
+# Sensitive values -> become Secrets. Dev defaults here; override in any real deploy.
+secrets:
+  adminToken: dev-admin-token
+  webhookSecret: dev-webhook-secret
+  telegramBotToken: ""
+  telegramChatId: ""
+
+# In-cluster Postgres (StatefulSet + PVC). Set enabled=false to point at an external
+# managed database via externalDatabaseUrl instead (spec 16.5, config-selectable).
+postgres:
+  enabled: true
+  image: postgres:17
+  user: postgres
+  password: dev
+  database: releasepulse
+  storage: 1Gi
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# Used only when postgres.enabled=false. e.g. postgresql+psycopg://user:pass@host:5432/db
+externalDatabaseUrl: ""
+
+api:
+  replicas: 1
+  service:
+    port: 8000
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+worker:
+  # Single replica only (spec 12): APScheduler would double-run checks/evaluations.
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+grafana:
+  enabled: true
+  image: grafana/grafana:11.4.0
+  roPassword: grafana-ro      # password for the read-only DB role grafana uses
+  service:
+    port: 3000
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# The check target, so the regression loop can be demonstrated end-to-end on kind.
+demo:
+  enabled: true
+  service:
+    port: 8080
+
+# Off by default; we reach the api/grafana via kubectl port-forward first. Flip on
+# to expose them through an ingress-nginx controller at the hosts below.
+ingress:
+  enabled: false
+  className: nginx
+  apiHost: releasepulse.localhost
+  grafanaHost: grafana.localhost

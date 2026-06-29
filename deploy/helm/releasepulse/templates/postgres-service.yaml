@@ -1,0 +1,20 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "releasepulse.postgresHost" . }}
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  # Headless (clusterIP: None): no load-balancer VIP, DNS resolves straight to the
+  # pod. Right for a single stateful backend - and what a StatefulSet expects.
+  clusterIP: None
+  selector:
+    {{- include "releasepulse.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+{{- end }}

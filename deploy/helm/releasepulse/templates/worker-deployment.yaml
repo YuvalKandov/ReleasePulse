@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-worker
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  # Single replica only (spec 12). Recreate (not RollingUpdate) so the old worker
+  # is fully stopped before the new one starts - two schedulers would double-run
+  # checks and evaluations.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "releasepulse.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      annotations:
+        # Roll the worker whenever config/secret content changes (see api-deployment).
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret-app.yaml") . | sha256sum }}
+      labels:
+        {{- include "releasepulse.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+    spec:
+      {{- if .Values.postgres.enabled }}
+      initContainers:
+        {{- include "releasepulse.waitForMigrations" . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "releasepulse.worker.runner"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.workerHttpPort }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "releasepulse.configName" . }}
+            - secretRef:
+                name: {{ include "releasepulse.appSecretName" . }}
+          # Probes hit the worker's internal HTTP server (1a). Readiness =
+          # DB + scheduler running + fresh heartbeat.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}

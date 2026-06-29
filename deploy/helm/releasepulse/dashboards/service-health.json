@@ -1,0 +1,110 @@
+{
+  "uid": "releasepulse-service-health",
+  "title": "ReleasePulse - Service Health",
+  "tags": ["releasepulse"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "annotations": {
+    "list": [
+      {
+        "name": "Deployments",
+        "datasource": { "type": "postgres", "uid": "releasepulse" },
+        "enable": true,
+        "iconColor": "semi-dark-orange",
+        "target": {
+          "format": "table",
+          "rawSql": "SELECT deployed_at AS time, service_name || ' ' || release AS text, evaluation_status AS tags FROM deployment_annotations_view WHERE $__timeFilter(deployed_at) ORDER BY deployed_at"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "p50 latency by endpoint",
+      "datasource": { "type": "postgres", "uid": "releasepulse" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "releasepulse" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(checked_at, $__interval), endpoint_url AS metric, percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms) AS p50 FROM service_check_metrics_view WHERE $__timeFilter(checked_at) AND success GROUP BY 1, endpoint_url ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "error rate by endpoint",
+      "datasource": { "type": "postgres", "uid": "releasepulse" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": { "drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 15, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "releasepulse" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(checked_at, $__interval), endpoint_url AS metric, avg((NOT success)::int)::float AS error_rate FROM service_check_metrics_view WHERE $__timeFilter(checked_at) GROUP BY 1, endpoint_url ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Recent deployments",
+      "datasource": { "type": "postgres", "uid": "releasepulse" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 9 },
+      "options": { "showHeader": true },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "evaluation_status" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "evaluated_regression": { "color": "red", "index": 0 }, "evaluated_no_regression": { "color": "green", "index": 1 } } }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "releasepulse" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT deployed_at, service_name, environment, release, evaluation_status, evaluation_reason FROM deployment_annotations_view ORDER BY deployed_at DESC LIMIT 50"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-grafana
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  # Datasource: read-only Postgres role. The password is NOT in here - it's the
+  # $GRAFANA_DB_PASSWORD env var (from the Secret), which Grafana expands when it
+  # reads provisioning files.
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: ReleasePulse
+        uid: releasepulse
+        type: postgres
+        access: proxy
+        url: {{ include "releasepulse.postgresHost" . }}:5432
+        user: sentinel_grafana_ro
+        isDefault: true
+        editable: false
+        jsonData:
+          database: {{ .Values.postgres.database }}
+          sslmode: disable
+          postgresVersion: 1700
+        secureJsonData:
+          password: $GRAFANA_DB_PASSWORD
+  # Dashboard provider: load any dashboard JSON found under this path on startup.
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: ReleasePulse
+        type: file
+        disableDeletion: false
+        allowUiUpdates: true
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+  # The dashboard itself, pulled verbatim from the chart's copy.
+  service-health.json: |
+{{ .Files.Get "dashboards/service-health.json" | indent 4 }}
+{{- end }}

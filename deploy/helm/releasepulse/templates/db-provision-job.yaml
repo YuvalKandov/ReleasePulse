@@ -1,0 +1,63 @@
+{{- if and .Values.postgres.enabled .Values.grafana.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-db-provision
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db-provision
+  annotations:
+    # Weight 10: runs after migrate (weight 0), so the tables the views read exist.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "releasepulse.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: db-provision
+    spec:
+      restartPolicy: OnFailure
+      {{- if .Values.postgres.enabled }}
+      initContainers:
+        {{- include "releasepulse.waitForPostgres" . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: db-provision
+          image: {{ .Values.postgres.image | quote }}
+          # Apply views, then the role/grants. -v passes the Grafana password from
+          # the Secret as the psql variable the grants script reads.
+          command:
+            - sh
+            - -c
+            - >
+              psql -v ON_ERROR_STOP=1 -v grafana_password="$GRAFANA_DB_PASSWORD"
+              -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE"
+              -f /sql/views.sql -f /sql/grants.sql
+          env:
+            - name: PGHOST
+              value: {{ include "releasepulse.postgresHost" . }}
+            - name: PGUSER
+              value: {{ .Values.postgres.user | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.postgres.database | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "releasepulse.dbSecretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: GRAFANA_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "releasepulse.dbSecretName" . }}
+                  key: GRAFANA_DB_PASSWORD
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+      volumes:
+        - name: sql
+          configMap:
+            name: {{ include "releasepulse.fullname" . }}-db-provision-sql
+{{- end }}

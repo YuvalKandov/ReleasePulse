@@ -1,0 +1,18 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-grafana
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "releasepulse.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+  ports:
+    - name: http
+      port: {{ .Values.grafana.service.port }}
+      targetPort: http
+{{- end }}

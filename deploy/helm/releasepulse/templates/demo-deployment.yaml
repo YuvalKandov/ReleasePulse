@@ -1,0 +1,45 @@
+{{- if .Values.demo.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-demo
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "releasepulse.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: demo
+  template:
+    metadata:
+      labels:
+        {{- include "releasepulse.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: demo
+    spec:
+      containers:
+        - name: demo
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["uvicorn", "releasepulse.demo.service:app", "--host", "0.0.0.0", "--port", "8080"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          ports:
+            - name: http
+              containerPort: 8080
+          # tcpSocket, not httpGet: probing "/" would trigger the demo's configured
+          # latency/error behaviour, which is exactly what we want the worker (not
+          # the kubelet) to observe. "Is the port open" is the right liveness signal.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+{{- end }}

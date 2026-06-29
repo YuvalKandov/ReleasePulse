@@ -1,0 +1,52 @@
+{{- if and .Values.postgres.enabled .Values.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-db-provision-sql
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db-provision
+data:
+  # The Grafana read layer: two views over the app tables (mirrors
+  # deploy/grafana/views.sql, kept in sync). No secrets here.
+  views.sql: |
+    CREATE OR REPLACE VIEW service_check_metrics_view AS
+    SELECT
+        c.checked_at,
+        s.id   AS service_id,
+        s.name AS service_name,
+        e.id   AS endpoint_id,
+        e.url  AS endpoint_url,
+        e.environment,
+        c.success,
+        c.latency_ms,
+        c.status_code,
+        c.error_type
+    FROM checks c
+    JOIN endpoints e ON e.id = c.endpoint_id
+    JOIN services  s ON s.id = e.service_id;
+
+    CREATE OR REPLACE VIEW deployment_annotations_view AS
+    SELECT
+        d.id                    AS deployment_id,
+        d.effective_deployed_at AS deployed_at,
+        s.name                  AS service_name,
+        d.environment,
+        COALESCE(d.version, d.commit_sha, 'unknown') AS release,
+        d.evaluation_status,
+        d.evaluation_reason
+    FROM deployments d
+    JOIN services s ON s.id = d.service_id;
+  # Create the read-only role and grant it the two views only. The password is the
+  # psql variable :grafana_password, supplied at runtime from the Secret - so it
+  # never appears in this ConfigMap. \gexec runs the CREATE ROLE that the SELECT
+  # builds, only when the role is missing; the ALTER keeps the password in sync.
+  grants.sql: |
+    SELECT 'CREATE ROLE sentinel_grafana_ro LOGIN PASSWORD ' || quote_literal(:'grafana_password')
+    WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'sentinel_grafana_ro')
+    \gexec
+    ALTER ROLE sentinel_grafana_ro LOGIN PASSWORD :'grafana_password';
+    GRANT CONNECT ON DATABASE {{ .Values.postgres.database }} TO sentinel_grafana_ro;
+    GRANT USAGE ON SCHEMA public TO sentinel_grafana_ro;
+    GRANT SELECT ON service_check_metrics_view, deployment_annotations_view TO sentinel_grafana_ro;
+{{- end }}

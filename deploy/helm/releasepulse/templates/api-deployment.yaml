@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-api
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      {{- include "releasepulse.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      annotations:
+        # Roll the pods whenever the config/secret content changes - env from a
+        # ConfigMap/Secret is read only at container start, so without this a
+        # value change would silently not take effect until a manual restart.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret-app.yaml") . | sha256sum }}
+      labels:
+        {{- include "releasepulse.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      {{- if .Values.postgres.enabled }}
+      initContainers:
+        {{- include "releasepulse.waitForMigrations" . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # No command: the image's default CMD is the uvicorn API server.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: {{ include "releasepulse.configName" . }}
+            - secretRef:
+                name: {{ include "releasepulse.appSecretName" . }}
+          # Liveness stays dumb (process up); readiness gates traffic on DB +
+          # migrations, matching the /healthz vs /readyz split built in 1a.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}

@@ -1,0 +1,25 @@
+# kind cluster for ReleasePulse (Phase 1). One node that is both control-plane
+# and worker - enough for a local single-replica stack.
+#
+# The node-label + port mappings prepare the cluster for an ingress controller:
+# - ingress-ready=true is the node selector the kind ingress-nginx manifest uses.
+# - hostPort 80/443 forward from your laptop straight into the node, so an Ingress
+#   is reachable at http://localhost without a tunnel or port-forward.
+# Harmless if we end up using `kubectl port-forward` instead; it just sits unused.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP

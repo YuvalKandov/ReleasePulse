@@ -1,0 +1,8 @@
+apiVersion: v2
+name: releasepulse
+description: Release-health platform - links deployments to production behaviour and flags post-deploy regressions.
+type: application
+# version  = the chart's own version (bump when the templates change).
+# appVersion = the application version this chart deploys.
+version: 0.1.0
+appVersion: "0.1.0"
