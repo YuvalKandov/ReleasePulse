@@ -5,6 +5,9 @@ metadata:
   labels:
     {{- include "releasepulse.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
+  annotations:
+    # Deploy after migrations (waves 1-2) so /readyz can pass.
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   replicas: {{ .Values.api.replicas }}
   selector:

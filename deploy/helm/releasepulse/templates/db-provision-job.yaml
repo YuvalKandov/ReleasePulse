@@ -7,10 +7,10 @@ metadata:
     {{- include "releasepulse.labels" . | nindent 4 }}
     app.kubernetes.io/component: db-provision
   annotations:
-    # Weight 10: runs after migrate (weight 0), so the tables the views read exist.
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "10"
-    "helm.sh/hook-delete-policy": before-hook-creation
+    # Wave 2: after migrate (wave 1), so the tables the views read exist.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   backoffLimit: 6
   template:
@@ -22,7 +22,9 @@ spec:
       restartPolicy: OnFailure
       {{- if .Values.postgres.enabled }}
       initContainers:
-        {{- include "releasepulse.waitForPostgres" . | nindent 8 }}
+        # Wait for the schema (not just Postgres): the views read app tables that
+        # migrate creates, so db-provision must run after migrate either way.
+        {{- include "releasepulse.waitForMigrations" . | nindent 8 }}
       {{- end }}
       containers:
         - name: db-provision

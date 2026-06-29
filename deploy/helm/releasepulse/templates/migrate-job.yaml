@@ -6,13 +6,12 @@ metadata:
     {{- include "releasepulse.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
-    # Helm hook: run AFTER the release's resources (so Postgres exists), on both
-    # install and every upgrade. Weight 0 orders it before db-provision (weight 10);
-    # Helm waits for this Job to succeed before the next hook runs.
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "0"
-    # Keep the finished Job for log inspection; delete it just before the next run.
-    "helm.sh/hook-delete-policy": before-hook-creation
+    # ArgoCD Sync hook, ordered by sync-wave: runs in wave 1, after Postgres
+    # (wave 0) is healthy and before the app (wave 3). BeforeHookCreation deletes
+    # the prior Job each sync so migrations re-run on every deploy.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   backoffLimit: 6
   template:

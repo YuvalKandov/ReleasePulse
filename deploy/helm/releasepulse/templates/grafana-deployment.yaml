@@ -6,6 +6,9 @@ metadata:
   labels:
     {{- include "releasepulse.labels" . | nindent 4 }}
     app.kubernetes.io/component: grafana
+  annotations:
+    # Deploy after db-provision (wave 2) creates the read-only role it connects as.
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   replicas: 1
   selector:

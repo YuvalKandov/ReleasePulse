@@ -5,6 +5,9 @@ metadata:
   labels:
     {{- include "releasepulse.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
+  annotations:
+    # Deploy after migrations (waves 1-2) so the worker doesn't start on an empty DB.
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   # Single replica only (spec 12). Recreate (not RollingUpdate) so the old worker
   # is fully stopped before the new one starts - two schedulers would double-run
