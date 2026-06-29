@@ -46,6 +46,13 @@ postgres:
 # Used only when postgres.enabled=false. e.g. postgresql+psycopg://user:pass@host:5432/db
 externalDatabaseUrl: ""
 
+# Daily cleanup of the high-volume `checks` table (spec retention: 90d default,
+# configurable down to 30 on a tiny VM). A standing CronJob, not a worker job.
+retention:
+  enabled: true
+  checksDays: 90
+  schedule: "0 3 * * *"         # 03:00 daily, off-peak
+
 api:
   replicas: 1
   service:

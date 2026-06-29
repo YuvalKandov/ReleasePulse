@@ -1,0 +1,55 @@
+{{- if and .Values.postgres.enabled .Values.retention.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-cleanup-checks
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cleanup-checks
+spec:
+  # Standing resource, not a sync-time hook: ArgoCD just keeps it applied and
+  # Kubernetes fires it on the schedule. `checks` is the only unbounded table -
+  # one DELETE keeps it inside the retention window so the PVC never fills.
+  schedule: {{ .Values.retention.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            {{- include "releasepulse.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: cleanup-checks
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: cleanup-checks
+              image: {{ .Values.postgres.image | quote }}
+              # Delete checks older than the retention window. RETENTION_DAYS is a
+              # trusted integer from values, so the shell substitutes it directly
+              # into make_interval, which keeps the result a real interval type.
+              # (psql's :'var' interpolation does not run in -c mode, only -f/stdin.)
+              command:
+                - sh
+                - -c
+                - >
+                  psql -v ON_ERROR_STOP=1
+                  -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE"
+                  -c "DELETE FROM checks WHERE checked_at < now() - make_interval(days => ${RETENTION_DAYS})"
+              env:
+                - name: RETENTION_DAYS
+                  value: {{ .Values.retention.checksDays | quote }}
+                - name: PGHOST
+                  value: {{ include "releasepulse.postgresHost" . }}
+                - name: PGUSER
+                  value: {{ .Values.postgres.user | quote }}
+                - name: PGDATABASE
+                  value: {{ .Values.postgres.database | quote }}
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "releasepulse.dbSecretName" . }}
+                      key: POSTGRES_PASSWORD
+{{- end }}
