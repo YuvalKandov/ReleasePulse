@@ -1,0 +1,88 @@
+{{- if and .Values.postgres.enabled .Values.minio.enabled .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-backup
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            {{- include "releasepulse.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          # initContainer dumps, main container uploads: initContainers always run
+          # to completion first, so "dump then ship" needs no extra orchestration.
+          # They hand the file over through a shared emptyDir.
+          initContainers:
+            - name: dump
+              image: {{ .Values.postgres.image | quote }}
+              command:
+                - sh
+                - -c
+                - >
+                  pg_dump -Fc -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE"
+                  -f /work/db-$(date -u +%Y%m%dT%H%M%SZ).dump
+              env:
+                - name: PGHOST
+                  value: {{ include "releasepulse.postgresHost" . }}
+                - name: PGUSER
+                  value: {{ .Values.postgres.user | quote }}
+                - name: PGDATABASE
+                  value: {{ .Values.postgres.database | quote }}
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "releasepulse.dbSecretName" . }}
+                      key: POSTGRES_PASSWORD
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+          containers:
+            - name: upload
+              image: {{ .Values.minio.mcImage | quote }}
+              # Point mc at the in-cluster MinIO, ensure the bucket exists, ship the
+              # dump, then best-effort prune objects older than the keep window.
+              # set -e fails the job on a real upload error; only the prune is
+              # tolerated (|| true) so a prune hiccup never fails a good backup.
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  mc alias set local "http://{{ include "releasepulse.minioHost" . }}:9000" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+                  mc mb --ignore-existing "local/$BUCKET"
+                  mc cp /work/*.dump "local/$BUCKET/"
+                  mc rm --recursive --force --older-than "$KEEP" "local/$BUCKET/" || true
+              env:
+                - name: BUCKET
+                  value: {{ .Values.minio.bucket | quote }}
+                - name: KEEP
+                  value: {{ .Values.backup.keep | quote }}
+                - name: MINIO_ROOT_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "releasepulse.minioSecretName" . }}
+                      key: MINIO_ROOT_USER
+                - name: MINIO_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "releasepulse.minioSecretName" . }}
+                      key: MINIO_ROOT_PASSWORD
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+          volumes:
+            - name: work
+              emptyDir: {}
+{{- end }}

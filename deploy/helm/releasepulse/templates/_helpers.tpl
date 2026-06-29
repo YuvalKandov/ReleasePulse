@@ -45,6 +45,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "releasepulse.appSecretName" -}}{{ include "releasepulse.fullname" . }}-app{{- end -}}
 {{- define "releasepulse.dbSecretName" -}}{{ include "releasepulse.fullname" . }}-db{{- end -}}
 {{- define "releasepulse.postgresHost" -}}{{ include "releasepulse.fullname" . }}-postgres{{- end -}}
+{{- define "releasepulse.minioHost" -}}{{ include "releasepulse.fullname" . }}-minio{{- end -}}
+{{- define "releasepulse.minioSecretName" -}}{{ include "releasepulse.fullname" . }}-minio{{- end -}}
 
 {{/*
 The SQLAlchemy URL. Built from the in-cluster Postgres values, or taken verbatim

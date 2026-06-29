@@ -53,6 +53,30 @@ retention:
   checksDays: 90
   schedule: "0 3 * * *"         # 03:00 daily, off-peak
 
+# In-cluster S3-compatible object store, the off-cluster backup target. Swap the
+# endpoint for real S3 in production and the backup job is unchanged.
+minio:
+  enabled: true
+  # Date-pinned releases. If either image fails to pull (ImagePullBackOff), bump
+  # the tag to a current release - tags are at hub.docker.com/r/minio/minio/tags.
+  image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+  mcImage: minio/mc:RELEASE.2025-04-16T18-13-26Z
+  rootUser: minioadmin
+  rootPassword: minioadmin
+  bucket: backups
+  storage: 1Gi
+  console: false                # expose the :9001 admin UI port on the Service
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+# Scheduled pg_dump -> MinIO. keep prunes objects older than the window (mc
+# duration form, e.g. 30d, 720h). Restore procedure: docs/runbooks/db-restore.md.
+backup:
+  enabled: true
+  schedule: "0 2 * * *"         # 02:00 daily, before the 03:00 retention sweep
+  keep: "30d"
+
 api:
   replicas: 1
   service:

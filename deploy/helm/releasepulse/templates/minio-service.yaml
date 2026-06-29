@@ -1,0 +1,24 @@
+{{- if .Values.minio.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "releasepulse.minioHost" . }}
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  # Headless: the backup CronJob resolves the pod directly over the S3 API port.
+  clusterIP: None
+  selector:
+    {{- include "releasepulse.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: api
+    {{- if .Values.minio.console }}
+    - name: console
+      port: 9001
+      targetPort: console
+    {{- end }}
+{{- end }}
