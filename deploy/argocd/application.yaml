@@ -1,0 +1,29 @@
+# ArgoCD Application: the GitOps contract. ArgoCD continuously reconciles the
+# cluster to match the Helm chart at this path in git. You change the app by
+# pushing to git, not by running helm.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: releasepulse
+  namespace: argocd
+  # Cascade-delete the app's resources if this Application is deleted.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YuvalKandov/ReleasePulse.git
+    targetRevision: main
+    path: deploy/helm/releasepulse
+    helm: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: releasepulse
+  syncPolicy:
+    # Automated: ArgoCD applies git changes on its own. prune removes resources
+    # deleted from git; selfHeal reverts manual kubectl drift back to git state.
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
