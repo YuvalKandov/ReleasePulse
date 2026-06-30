@@ -59,6 +59,9 @@ spec:
             - name: grafana-config
               mountPath: /var/lib/grafana/dashboards/platform-health.json
               subPath: platform-health.json
+            - name: grafana-config
+              mountPath: /var/lib/grafana/dashboards/slo.json
+              subPath: slo.json
             {{- end }}
           readinessProbe:
             httpGet:

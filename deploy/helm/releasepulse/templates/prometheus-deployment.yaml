@@ -15,8 +15,9 @@ spec:
   template:
     metadata:
       annotations:
-        # Roll Prometheus when its scrape config changes.
+        # Roll Prometheus when its scrape config or SLI rules change.
         checksum/config: {{ include (print $.Template.BasePath "/prometheus-configmap.yaml") . | sha256sum }}
+        checksum/rules: {{ include (print $.Template.BasePath "/prometheus-rules-configmap.yaml") . | sha256sum }}
       labels:
         {{- include "releasepulse.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: prometheus
@@ -49,12 +50,17 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus
+            - name: rules
+              mountPath: /etc/prometheus/rules
             - name: data
               mountPath: /prometheus
       volumes:
         - name: config
           configMap:
             name: {{ include "releasepulse.fullname" . }}-prometheus
+        - name: rules
+          configMap:
+            name: {{ include "releasepulse.fullname" . }}-prometheus-rules
         # Ephemeral storage: platform self-metrics don't need to survive a restart.
         - name: data
           emptyDir: {}

@@ -10,6 +10,9 @@ data:
   prometheus.yml: |
     global:
       scrape_interval: 15s
+    # SLI recording rules, mounted from the prometheus-rules ConfigMap.
+    rule_files:
+      - /etc/prometheus/rules/*.yml
     scrape_configs:
       # Discover Service endpoints in this namespace and scrape only the ones
       # annotated prometheus.io/scrape="true" (our api + worker). Each Service has

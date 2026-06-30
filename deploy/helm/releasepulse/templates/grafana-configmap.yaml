@@ -55,5 +55,7 @@ data:
   {{- if .Values.prometheus.enabled }}
   platform-health.json: |
 {{ .Files.Get "dashboards/platform-health.json" | indent 4 }}
+  slo.json: |
+{{ .Files.Get "dashboards/slo.json" | indent 4 }}
   {{- end }}
 {{- end }}

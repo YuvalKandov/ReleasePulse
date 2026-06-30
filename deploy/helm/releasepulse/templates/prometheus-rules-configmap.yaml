@@ -1,0 +1,54 @@
+{{- if .Values.prometheus.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-prometheus-rules
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+data:
+  # Recording rules that turn the raw sentinel_* counters into named SLI series
+  # (good events / valid events). Precomputing them keeps the SLO dashboard cheap
+  # and gives every panel a stable series name to graph against its target.
+  # Targets and the error-budget framing live in docs/slos.md.
+  slo.rules.yml: |
+    groups:
+      - name: releasepulse_slo
+        interval: 30s
+        rules:
+          # --- Monitored-service SLIs: are the checked apps healthy and fast? ---
+          # Fraction of checks that succeeded.
+          - record: sli:check_success:ratio_rate5m
+            expr: |
+              sum(rate(sentinel_checks_total{result="success"}[5m]))
+              /
+              sum(rate(sentinel_checks_total[5m]))
+          - record: sli:check_success:ratio_rate1h
+            expr: |
+              sum(rate(sentinel_checks_total{result="success"}[1h]))
+              /
+              sum(rate(sentinel_checks_total[1h]))
+          # Fraction of checks that completed under 1s (le="1.0" is a default
+          # prometheus_client histogram bucket; there is no 2.0 bucket).
+          - record: sli:check_latency_under_slo:ratio_rate5m
+            expr: |
+              sum(rate(sentinel_check_duration_seconds_bucket{le="1.0"}[5m]))
+              /
+              sum(rate(sentinel_check_duration_seconds_count[5m]))
+          - record: sli:check_latency_under_slo:ratio_rate1h
+            expr: |
+              sum(rate(sentinel_check_duration_seconds_bucket{le="1.0"}[1h]))
+              /
+              sum(rate(sentinel_check_duration_seconds_count[1h]))
+          # --- Platform SLIs: is the watchdog itself doing its job? ---
+          # Webhook ingestion: received + duplicate are both successful outcomes
+          # (duplicate = idempotent re-delivery); only rejected is a failure.
+          - record: sli:webhook_success:ratio_rate1h
+            expr: |
+              sum(rate(sentinel_webhooks_total{result=~"received|duplicate"}[1h]))
+              /
+              sum(rate(sentinel_webhooks_total[1h]))
+          # Worker availability: fraction of scrapes the worker target was up.
+          - record: sli:worker_up:ratio_rate1h
+            expr: avg_over_time(up{component="worker"}[1h])
+{{- end }}
