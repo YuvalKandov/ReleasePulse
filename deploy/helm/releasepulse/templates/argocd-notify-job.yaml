@@ -1,0 +1,88 @@
+{{- if .Values.argocdHook.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "releasepulse.fullname" . }}-argocd-notify
+  labels:
+    {{- include "releasepulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: argocd-notify
+  annotations:
+    # Fires after every successful ArgoCD sync: ReleasePulse records its own
+    # GitOps deploys as deployment events (source=argocd). HookSucceeded cleans
+    # the Job up so it doesn't pile up across syncs.
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        {{- include "releasepulse.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: argocd-notify
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: notify
+          # The app image already ships Python + stdlib, so the HMAC is signed the
+          # same way the server verifies it - no openssl/curl or runtime apk needed.
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            # The image USER is a name; runAsNonRoot needs the numeric uid.
+            runAsNonRoot: true
+            runAsUser: 1000
+          command:
+            - python
+            - -c
+            - |
+              import hmac, hashlib, json, os, time, urllib.request, urllib.error
+              secret = os.environ["WEBHOOK_SECRET"].encode()
+              external_id = os.environ["EXTERNAL_ID"]
+              api = os.environ["API_URL"]
+              now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+              body = json.dumps({
+                  "service": os.environ["SERVICE"],
+                  "source": "argocd",
+                  "external_id": external_id,
+                  "environment": os.environ["ENVIRONMENT"],
+                  "version": os.environ["VERSION"],
+                  "reported_deployed_at": now,
+              }).encode()
+              ts = str(int(time.time()))
+              sig = hmac.new(secret, ts.encode() + b"." + body, hashlib.sha256).hexdigest()
+              req = urllib.request.Request(
+                  api + "/webhooks/deployments", data=body, method="POST",
+                  headers={
+                      "X-Sentinel-Timestamp": ts,
+                      "X-Sentinel-Signature": sig,
+                      "X-Sentinel-Event-Id": external_id + ":" + ts,
+                      "Content-Type": "application/json",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=10) as r:
+                      print("argocd-notify: HTTP", r.status, r.read().decode())
+              except urllib.error.HTTPError as e:
+                  # e.g. 404 if the service isn't registered - log, don't fail.
+                  print("argocd-notify: HTTP", e.code, e.read().decode())
+              except Exception as e:
+                  print("argocd-notify: error:", repr(e))
+              # Best-effort: never block the sync, whatever happened above.
+          env:
+            - name: SERVICE
+              value: {{ .Values.argocdHook.service | quote }}
+            - name: ENVIRONMENT
+              value: {{ .Values.argocdHook.environment | quote }}
+            - name: VERSION
+              value: {{ .Values.argocdHook.version | default .Chart.AppVersion | quote }}
+            # Stable per release so repeated syncs dedup on (source, external_id).
+            - name: EXTERNAL_ID
+              value: {{ printf "argocd:%s:%s" .Values.argocdHook.service (.Values.argocdHook.version | default .Chart.AppVersion) | quote }}
+            - name: API_URL
+              value: {{ printf "http://%s-api:%v" (include "releasepulse.fullname" .) .Values.api.service.port | quote }}
+            - name: WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "releasepulse.appSecretName" . }}
+                  key: WEBHOOK_SECRET
+{{- end }}

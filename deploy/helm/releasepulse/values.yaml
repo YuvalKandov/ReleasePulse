@@ -117,6 +117,17 @@ demo:
   service:
     port: 8080
 
+# ArgoCD PostSync hook: after each successful sync, post a source=argocd
+# deployment event so ReleasePulse records its own GitOps deploys. Best-effort -
+# if `service` is not registered the webhook 404s and the hook still exits clean.
+# version defaults to Chart.AppVersion; external_id is argocd:<service>:<version>,
+# stable across syncs so re-syncs dedup instead of creating duplicate deployments.
+argocdHook:
+  enabled: true
+  service: releasepulse
+  environment: production
+  version: ""                   # empty -> Chart.AppVersion
+
 # Exposes api + grafana through an ingress-nginx controller at the hosts below,
 # reachable at http://<host> with no port-forward (kind maps node 80 -> laptop 80).
 ingress:
